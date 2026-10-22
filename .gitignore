@@ -222,3 +222,6 @@ benchmark/profile_output/
 artifacts/
 /eval/
 data/
+
+# folding prototype checkpoints
+/runs/

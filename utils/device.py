@@ -80,3 +80,24 @@ def retry_on_oom(fn, batch_size):
             _empty_cache()
             batch_size //= 2
             print(f"[oom] retrying with batch size {batch_size}", flush=True)
+
+
+class _ContiguousGrad(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, g):
+        # .contiguous() is a no-op for size-1 dims with odd strides, so force a fresh standard layout.
+        return torch.empty(g.shape, dtype=g.dtype, device=g.device).copy_(g)
+
+
+def contiguous_grad(x):
+    """Identity whose backward makes the incoming gradient contiguous.
+
+    The mps convolution backward aborts ("Weights tensor and ndArray input channel mismatch") when the
+    gradient reaching a Conv1d with output length 1 is non-contiguous, which happens when the conv
+    output is transposed afterwards. Only applied on mps.
+    """
+    return _ContiguousGrad.apply(x) if x.device.type == "mps" and x.requires_grad else x
