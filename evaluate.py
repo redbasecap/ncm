@@ -3,6 +3,8 @@ import argparse, os, subprocess, sys
 import torch
 from omegaconf import OmegaConf
 
+from utils.device import get_device
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -18,8 +20,9 @@ def main():
 
     cfg = OmegaConf.load(args.config)
     gpus = args.gpus.split(",") if args.gpus else [str(i) for i in range(torch.cuda.device_count())]
-    if not gpus:
-        sys.exit("no GPU visible; pass --gpus")
+    device = get_device()
+    if device != "cuda":
+        gpus = ["0"]  # Apple Silicon (mps) or cpu: one shard on the single device
     out = args.out or os.path.join("eval", cfg.task)
     os.makedirs(out, exist_ok=True)
 
@@ -27,13 +30,14 @@ def main():
               "--nshards", str(len(gpus))] + (["--n", str(args.n)] if args.n else []) + passthrough
     procs = []
     for k, gpu in enumerate(gpus):
-        env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, TOKENIZERS_PARALLELISM="false")
+        env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, TOKENIZERS_PARALLELISM="false", NCM_DEVICE=device)
         log = open(os.path.join(out, f"shard_{k}.log"), "w")
         procs.append(subprocess.Popen(
             [sys.executable, os.path.join(ROOT, "scripts", "eval_shard.py"), *common,
              "--shard", str(k), "--out", os.path.join(out, f"shard_{k}.pkl")],
             env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT))
-    print(f"[evaluate] {len(gpus)} shard(s) on GPU(s) {','.join(gpus)} -> {out}/", flush=True)
+    where = f"GPU(s) {','.join(gpus)}" if device == "cuda" else device
+    print(f"[evaluate] {len(gpus)} shard(s) on {where} -> {out}/", flush=True)
     failed = [k for k, p in enumerate(procs) if p.wait() != 0]
     if failed:
         sys.exit(f"shard(s) {failed} failed; see {out}/shard_*.log")

@@ -63,7 +63,7 @@ cd ncm
 pip install -r requirements.txt
 ```
 
-Python 3.10 or newer and a CUDA-capable PyTorch installation are recommended.
+Python 3.10 or newer is required. Use a CUDA-capable PyTorch installation on Linux; Apple Silicon Macs work as well (see [Apple Silicon](#apple-silicon-macs)).
 
 ## Evaluation
 
@@ -85,6 +85,42 @@ python evaluate.py --config config/eval/<dataset>.yaml --checkpoint-dir artifact
 ```
 
 This runs one generation shard per visible GPU, merges them, and prints ROUGE-1/2/L and generative perplexity for XSum; cased and lowercased sacreBLEU, chrF and length ratio for WMT14; solved, cell and valid-grid rates for Sudoku; and generative perplexity under GPT-2 large with unigram entropy, over 5 seeds of 256 unconditional samples, for TinyStories, OpenWebText and LM1B, the latter under the FLM scoring protocol. Add `--cfg <scale>` for classifier-free guidance on XSum and WMT14; the guided WMT14 row uses `--cfg 1.0`.
+
+## Apple Silicon Macs
+
+Evaluation runs on Apple Silicon Macs through PyTorch's `mps` backend. You don't need an NVIDIA GPU or any extra flags. Every M-series chip (M1 to M4 and later) uses the same `mps` backend, and any operation a given chip or macOS version lacks falls back to the CPU. Requirements: an arm64 Mac running **macOS 14 or newer**, which current PyTorch wheels (`macosx_14_0_arm64`) need.
+
+```bash
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+.venv/bin/hf download hazyresearch/ncm-checkpoints --include "sudoku/easy/*" --local-dir artifacts
+.venv/bin/hf download hazyresearch/ncm-datasets --repo-type dataset --include "sudoku/easy/*" --local-dir data
+.venv/bin/python evaluate.py --config config/eval/sudoku-easy.yaml \
+    --checkpoint-dir artifacts/sudoku/easy --data-dir data/sudoku/easy
+```
+
+Changes compared to the CUDA-only code:
+
+- **Device choice**: CUDA if present, then `mps`, then CPU. Override with `NCM_DEVICE=mps|cpu|cuda`. Without CUDA, evaluation runs as a single shard.
+- **Area pooling**: `mps` only implements area pooling when the input length divides evenly by the output length, which most level schedules here don't. On `mps`, `utils.device.area_interpolate` computes the same bins as an exact matmul. CUDA and CPU still call `F.interpolate`.
+- **float64**: `mps` has no float64, so the float64 frequency and adjacency token picking runs on the CPU. The penalties and results are unchanged.
+- **Fallback**: `PYTORCH_ENABLE_MPS_FALLBACK=1` is set by default. Any operation missing from a given macOS or PyTorch build then runs on the CPU instead of failing.
+- **Tests**: `python -m pytest tests/` checks `mps` area pooling and linear upsampling against PyTorch's CPU reference for every level schedule in `config/eval/`.
+
+**Memory.** Generation batch size is set with `--bs`. The scoring models (GPT-2 / GPT-2 large) use `NCM_SCORE_BS`, default 32 (16 for LM1B). With an `mps` memory cap of 8 GB, the default settings ran WMT14 and LM1B-small fine. TinyStories generation also fit, but its GPT-2 large scoring ran out of memory at the default batch size and completed with `NCM_SCORE_BS=4`. On 8–16 GB Macs, start with `NCM_SCORE_BS=4` for the perplexity tasks.
+
+**Tested results** (M3 Max, 64 GB, macOS 26.5, PyTorch 2.14.1, `mps`):
+
+| Task | Inputs | Result | Time |
+|---|---|---|---|
+| Sudoku easy | 2000 (full) | 99.40% solved; identical to CPU output | 39 s (CPU: 190 s) |
+| Sudoku medium | 2000 (full) | 96.40% solved | 43 s |
+| Sudoku hard | 2000 (full) | 86.30% solved | 44 s |
+| WMT14 De→En | first 64 | BLEU 15.62, chrF 43.68; 64/64 translations identical to CPU | 22 s (CPU: 36 s) |
+| XSum | first 64 | R-1 33.02 / R-2 12.28 / R-L 26.36 | — |
+| TinyStories | 16 samples × 5 seeds | genPPL 15.40, entropy 3.98 | — |
+| LM1B small | 16 samples × 5 seeds | genPPL 90.63, entropy 4.32 | 27 s |
+
+These are smoke-test sample sizes for the text tasks, not the paper's protocol, so their numbers aren't comparable to the paper. Not run: LM1B medium and large, which use the same code path as small with bigger weights. OpenWebText also wasn't run, because no OWT generator has been released yet (the checkpoint repo only contains `owt/TODO.md`). Other Apple Silicon chips weren't tested directly.
 
 ## Repository layout
 
