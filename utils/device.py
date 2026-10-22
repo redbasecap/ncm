@@ -4,14 +4,31 @@ import torch
 import torch.nn.functional as F
 
 
+_MPS_OK = None
+
+
+def mps_usable():
+    """mps can report available yet fail to allocate (e.g. some virtualized Macs); try a real op."""
+    global _MPS_OK
+    if _MPS_OK is None:
+        _MPS_OK = False
+        if torch.backends.mps.is_available():
+            try:
+                x = torch.randn(256, 256, device="mps")
+                _MPS_OK = bool(torch.isfinite((x @ x).sum()).item())
+            except RuntimeError as e:
+                print(f"[device] mps unusable ({str(e).splitlines()[0][:120]}); using cpu", flush=True)
+    return _MPS_OK
+
+
 def get_device():
-    """NCM_DEVICE if set, else cuda, then Apple Silicon mps, then cpu."""
+    """NCM_DEVICE if set, else cuda, then Apple Silicon mps (if it really works), then cpu."""
     dev = os.environ.get("NCM_DEVICE")
     if dev:
         return dev
     if torch.cuda.is_available():
         return "cuda"
-    if torch.backends.mps.is_available():
+    if mps_usable():
         return "mps"
     return "cpu"
 
@@ -46,7 +63,7 @@ def area_interpolate(x, size):
 
 
 def _empty_cache():
-    if torch.backends.mps.is_available():
+    if mps_usable():
         torch.mps.empty_cache()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

@@ -10,9 +10,9 @@ from omegaconf import OmegaConf
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from utils.device import area_interpolate, float64_device, get_device, retry_on_oom
+from utils.device import area_interpolate, float64_device, get_device, mps_usable, retry_on_oom
 
-MPS = torch.backends.mps.is_available()
+MPS = mps_usable()
 
 
 def _level_pairs():
@@ -33,7 +33,7 @@ def test_area_interpolate_matches_reference_cpu(L, size):
     torch.testing.assert_close(area_interpolate(x, size), F.interpolate(x, size=(size,), mode="area"))
 
 
-@pytest.mark.skipif(not MPS, reason="needs Apple Silicon mps")
+@pytest.mark.skipif(not MPS, reason="needs a working Apple Silicon mps device")
 @pytest.mark.parametrize("L,size", _level_pairs())
 def test_area_interpolate_mps_matches_cpu(L, size):
     x = torch.randn(3, 16, L)
@@ -41,7 +41,7 @@ def test_area_interpolate_mps_matches_cpu(L, size):
     torch.testing.assert_close(area_interpolate(x.to("mps"), size).cpu(), ref, rtol=1e-5, atol=1e-5)
 
 
-@pytest.mark.skipif(not MPS, reason="needs Apple Silicon mps")
+@pytest.mark.skipif(not MPS, reason="needs a working Apple Silicon mps device")
 def test_linear_upsample_mps_matches_cpu():
     x = torch.randn(3, 16, 13)
     ref = F.interpolate(x, size=(89,), mode="linear")
