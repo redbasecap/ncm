@@ -88,7 +88,7 @@ This runs one generation shard per visible GPU, merges them, and prints ROUGE-1/
 
 ## Apple Silicon Macs
 
-Evaluation runs on Apple Silicon Macs through PyTorch's `mps` backend. You don't need an NVIDIA GPU or any extra flags. Every M-series chip (M1 to M4 and later) uses the same `mps` backend, and any operation a given chip or macOS version lacks falls back to the CPU. Requirements: an arm64 Mac running **macOS 14 or newer**, which current PyTorch wheels (`macosx_14_0_arm64`) need.
+Evaluation runs on Apple Silicon Macs (M1 to M4 and later) through PyTorch's `mps` backend. You don't need an NVIDIA GPU or any extra flags. Requirements: an arm64 Mac running **macOS 14 or newer**, which current PyTorch wheels (`macosx_14_0_arm64`) need.
 
 ```bash
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
@@ -100,15 +100,28 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requi
 
 Changes compared to the CUDA-only code:
 
-- **Device choice**: CUDA if present, then `mps`, then CPU. Override with `NCM_DEVICE=mps|cpu|cuda`. Without CUDA, evaluation runs as a single shard.
+- **Device choice**: CUDA if present, then `mps`, then CPU. `mps` is only chosen after a small test matmul succeeds, because some environments report `mps` as available but fail every allocation (for example GitHub's macOS 14 M1 runners). Override with `NCM_DEVICE=mps|cpu|cuda`. Without CUDA, evaluation runs as a single shard.
 - **Area pooling**: `mps` only implements area pooling when the input length divides evenly by the output length, which most level schedules here don't. On `mps`, `utils.device.area_interpolate` computes the same bins as an exact matmul. CUDA and CPU still call `F.interpolate`.
 - **float64**: `mps` has no float64, so the float64 frequency and adjacency token picking runs on the CPU. The penalties and results are unchanged.
-- **Fallback**: `PYTORCH_ENABLE_MPS_FALLBACK=1` is set by default. Any operation missing from a given macOS or PyTorch build then runs on the CPU instead of failing.
-- **Tests**: `python -m pytest tests/` checks `mps` area pooling and linear upsampling against PyTorch's CPU reference for every level schedule in `config/eval/`.
+- **Fallback**: `PYTORCH_ENABLE_MPS_FALLBACK=1` is set by default as a safety net for other macOS or PyTorch builds. No task needs it: every task type below also runs with `PYTORCH_ENABLE_MPS_FALLBACK=0`.
+- **Memory**: if the scoring model (GPT-2 / GPT-2 large) runs out of memory, its batch size is halved and the step retried. Perplexity is computed per sample or per token, so the result doesn't change. Set the starting value with `NCM_SCORE_BS` (default 32, or 16 for LM1B) and the generation batch size with `--bs`.
+- **Tests**: `python -m pytest tests/` checks `mps` area pooling and linear upsampling against PyTorch's CPU reference for every level schedule in `config/eval/`, plus device selection and the out-of-memory retry. `.github/workflows/apple-silicon.yml` runs the tests and a Sudoku run on the default device and on CPU, and requires identical outputs.
 
-**Memory.** Generation batch size is set with `--bs`. The scoring models (GPT-2 / GPT-2 large) use `NCM_SCORE_BS`, default 32 (16 for LM1B). With an `mps` memory cap of 8 GB, the default settings ran WMT14 and LM1B-small fine. TinyStories generation also fit, but its GPT-2 large scoring ran out of memory at the default batch size and completed with `NCM_SCORE_BS=4`. On 8–16 GB Macs, start with `NCM_SCORE_BS=4` for the perplexity tasks.
+### Where it has been verified
 
-**Tested results** (M3 Max, 64 GB, macOS 26.5, PyTorch 2.14.1, `mps`):
+| Machine | macOS | Device used | What ran |
+|---|---|---|---|
+| M3 Max, 64 GB | 26.5 | `mps` | all released models (table below) |
+| M3 Max, `mps` capped at 8 GB¹ | 26.5 | `mps` | WMT14, LM1B small, TinyStories (incl. GPT-2 large scoring) with default settings |
+| Apple M1 (GitHub `macos-15` runner) | 15.7 | `mps` | 155/155 tests; Sudoku easy 126/128, identical to CPU |
+| Apple M1 (GitHub `macos-14` runner) | 14.8 | CPU² | tests (`mps` ones skipped); Sudoku easy 126/128, identical to CPU |
+
+¹ The cap was set with `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.125 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.1`. It emulates a smaller GPU memory budget, not a real 8 GB Mac.
+² That VM's `mps` can't allocate memory, so device selection fell back to the CPU automatically.
+
+M2 and M4 chips weren't tested directly. They use the same `mps` backend, and which operations it supports depends on the PyTorch and macOS versions, not the chip generation.
+
+### Results on M3 Max (`mps`, PyTorch 2.14.1)
 
 | Task | Inputs | Result | Time |
 |---|---|---|---|
@@ -119,8 +132,10 @@ Changes compared to the CUDA-only code:
 | XSum | first 64 | R-1 33.02 / R-2 12.28 / R-L 26.36 | — |
 | TinyStories | 16 samples × 5 seeds | genPPL 15.40, entropy 3.98 | — |
 | LM1B small | 16 samples × 5 seeds | genPPL 90.63, entropy 4.32 | 27 s |
+| LM1B medium | 16 samples × 5 seeds | genPPL 92.19, entropy 4.34 | 61 s |
+<!-- LM1B_LARGE -->
 
-These are smoke-test sample sizes for the text tasks, not the paper's protocol, so their numbers aren't comparable to the paper. Not run: LM1B medium and large, which use the same code path as small with bigger weights. OpenWebText also wasn't run, because no OWT generator has been released yet (the checkpoint repo only contains `owt/TODO.md`). Other Apple Silicon chips weren't tested directly.
+The text tasks were run at smoke-test sample sizes, not the paper's protocol, so their numbers aren't comparable to the paper. OpenWebText can't be evaluated yet, on any hardware: no OWT generator has been released (the checkpoint repo only contains `owt/TODO.md`). `config/eval/owt.yaml` uses the same generation and `genppl` scoring path as TinyStories.
 
 ## Repository layout
 
