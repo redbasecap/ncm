@@ -20,7 +20,7 @@ from omegaconf import OmegaConf
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from folding.data import AA_PAD, load_cath
-from folding.geometry import lddt_ca, rmsd, tm_score_kabsch
+from folding.geometry import ca_internal, lddt_ca, rmsd, tm_score_kabsch
 from folding.tokens import AngleTokenizer
 from models.next_concept import NextConceptTransformer
 from models.vqvae import VQVAE
@@ -121,7 +121,7 @@ def train_vqvae(cfg, P):
         opt.step()
         if step % 250 == 0 or step == 1:
             acc = vqvae_accuracy(vq, va, pad)
-            print(f"[vqvae] step {step} ce {ce.item():.4f} vq {float(vq_loss):.4f} codebook {gutil:.2f} "
+            print(f"[vqvae] step {step} ce {ce.item():.4f} vq {float(vq_loss.detach()):.4f} codebook {gutil:.2f} "
                   f"min-level {min(util):.2f} val-recon-acc {acc:.4f} ({time.time() - t0:.0f}s)", flush=True)
             for i in range(len(vq.vq.levels)):
                 getattr(vq.vq, f"codebook_hit_{i}").zero_()
@@ -223,6 +223,7 @@ def evaluate(cfg, P, split="test", n=0, temperature=0.0):
     W = Windows(segs, T, pad)
     rows = {k: [] for k in ("ncm", "oracle", "per_aa", "majority")}
     acc = {k: [] for k in rows}
+    mae = {k: [] for k in rows}
     train = P["splits"]["train"]
     # Baselines: most frequent angle token overall, and per amino acid.
     aa_all = np.concatenate([s["seq"] for s in train])
@@ -246,12 +247,17 @@ def evaluate(cfg, P, split="test", n=0, temperature=0.0):
                 rows[k].append((rmsd(X, s["ca"]), tm_score_kabsch(X, s["ca"]), lddt_ca(X, s["ca"])))
                 m = true_t < tok.K
                 acc[k].append((t[m] == true_t[m]).mean())
+                th, ta = ca_internal(s["ca"])
+                ok = m & (t < tok.K) & ~np.isnan(th) & ~np.isnan(ta)
+                circ = lambda a, b: np.abs((a - b + np.pi) % (2 * np.pi) - np.pi)
+                mae[k].append(np.rad2deg(np.concatenate([circ(tok.theta[t[ok]], th[ok]), circ(tok.tau[t[ok]], ta[ok])])).mean())
     print(f"\n{split}: {len(segs)} resolved segments, {cfg.data.eval_min_len}-{T} residues, "
           f"CATH-topology split (folds unseen in training)\n")
-    print(f"{'method':>10} {'token acc':>10} {'CA RMSD':>9} {'TM (Kabsch)':>12} {'CA lDDT':>8}")
+    print(f"{'method':>10} {'token acc':>10} {'angle MAE':>10} {'CA RMSD':>9} {'TM (Kabsch)':>12} {'CA lDDT':>8}")
     for k in ("majority", "per_aa", "ncm", "oracle"):
         r = np.array(rows[k])
-        print(f"{k:>10} {np.mean(acc[k]):10.3f} {r[:, 0].mean():9.2f} {r[:, 1].mean():12.3f} {r[:, 2].mean():8.3f}")
+        print(f"{k:>10} {np.mean(acc[k]):10.3f} {np.mean(mae[k]):9.1f}° {r[:, 0].mean():9.2f} {r[:, 1].mean():12.3f} "
+              f"{r[:, 2].mean():8.3f}")
     return rows, acc
 
 
@@ -262,8 +268,12 @@ def main():
     ap.add_argument("--split", default="validation")
     ap.add_argument("--n", type=int, default=0)
     ap.add_argument("--steps", type=int, default=0, help="override training steps")
+    ap.add_argument("--set", nargs="*", default=[], help="config overrides, e.g. tokenizer.train.lr=5e-4")
+    ap.add_argument("--run", default="", help="run name under runs/folding/ (default: task)")
     a = ap.parse_args()
-    cfg = OmegaConf.load(a.config)
+    cfg = OmegaConf.merge(OmegaConf.load(a.config), OmegaConf.from_dotlist(a.set))
+    if a.run:
+        cfg.task = a.run
     if a.steps:
         cfg.tokenizer.train.steps = cfg.model.train.steps = a.steps
     torch.manual_seed(0)

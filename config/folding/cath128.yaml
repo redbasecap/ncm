@@ -13,7 +13,7 @@ tokenizer:
     context_length: 128
     embed_dim: 256
     in_vocab_size: 258     # angle_tokens + TERM + PAD
-    vqvae_vocab_size: [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+    vqvae_vocab_size: [256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256]
     compression_factor: 1
     dropout: 0.1
     dec_layers: 1
@@ -24,6 +24,7 @@ tokenizer:
     vector_quantizer_config:
       clss: multiscale_residual_vector_quantizer
       decay: 0.99
+      restart_threshold: 1.0  # restart dead codes; without it the codebooks collapse
       epsilon: 1.0e-05
       commitment_cost: 0.25
       learned_l1_sampling: true
@@ -45,9 +46,9 @@ tokenizer:
           prob: 0.5
           min_keep: 1
   train:
-    steps: 6000
+    steps: 4000
     batch_size: 128
-    lr: 1.0e-3
+    lr: 5.0e-4
 model:
   n_layer: 8
   n_head: 8
@@ -57,7 +58,7 @@ model:
   context_length: 128
   prefix_len: 128
   prefix_pad_token_id: 21  # folding.data.AA_PAD
-  vocab_size: [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+  vocab_size: [256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256]
   query_level0: true
   attn_pattern: block_diagonal
   use_positional_encoding: true
