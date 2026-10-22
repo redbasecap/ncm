@@ -1,0 +1,55 @@
+name: apple-silicon
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]  # GitHub-hosted Apple Silicon (M1) runners
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -r requirements.txt pytest
+      - name: Machine
+        run: |
+          sysctl -n machdep.cpu.brand_string; sw_vers -productVersion; uname -m
+          python -c "import torch; print('torch', torch.__version__, 'mps', torch.backends.mps.is_available())"
+      - name: Unit tests
+        run: python -m pytest tests -q
+      - name: Download Sudoku-easy
+        run: |
+          hf download hazyresearch/ncm-checkpoints --include "sudoku/easy/*" --local-dir artifacts
+          hf download hazyresearch/ncm-datasets --repo-type dataset --include "sudoku/easy/*" --local-dir data
+      - name: Evaluate (default device)
+        run: |
+          python evaluate.py --config config/eval/sudoku-easy.yaml --checkpoint-dir artifacts/sudoku/easy \
+            --data-dir data/sudoku/easy --n 128 --out eval/default | tee default.txt
+          cat eval/default/shard_0.log | tail -3
+      - name: Evaluate (cpu)
+        run: |
+          NCM_DEVICE=cpu python evaluate.py --config config/eval/sudoku-easy.yaml --checkpoint-dir artifacts/sudoku/easy \
+            --data-dir data/sudoku/easy --n 128 --out eval/cpu | tee cpu.txt
+      - name: Check results
+        run: |
+          python - <<'PY'
+          import pickle, re
+          for f in ("default.txt", "cpu.txt"):
+              solved = int(re.search(r"(\d+)/128", open(f).read()).group(1))
+              print(f, solved, "/ 128")
+              assert solved >= 120, f
+          a = pickle.load(open("eval/default/shard_0.pkl", "rb"))["hyps"]
+          b = pickle.load(open("eval/cpu/shard_0.pkl", "rb"))["hyps"]
+          same = sum(x == y for x, y in zip(a, b))
+          print("default device vs cpu identical:", same, "/", len(a))
+          assert same == len(a)
+          PY

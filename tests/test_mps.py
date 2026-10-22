@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from utils.device import area_interpolate, float64_device, get_device
+from utils.device import area_interpolate, float64_device, get_device, retry_on_oom
 
 MPS = torch.backends.mps.is_available()
 
@@ -54,6 +54,20 @@ def test_device_selection(monkeypatch):
     monkeypatch.delenv("NCM_DEVICE")
     assert get_device() in ("cuda", "mps", "cpu")
     assert float64_device("mps") == "cpu" and float64_device("cpu") == "cpu"
+
+
+def test_retry_on_oom_halves_batch_size():
+    seen = []
+
+    def fn(bs):
+        seen.append(bs)
+        if bs > 4:
+            raise RuntimeError("MPS backend out of memory (simulated)")
+        return bs
+
+    assert retry_on_oom(fn, 32) == 4 and seen == [32, 16, 8, 4]
+    with pytest.raises(RuntimeError, match="unrelated"):
+        retry_on_oom(lambda bs: (_ for _ in ()).throw(RuntimeError("unrelated")), 8)
 
 
 if __name__ == "__main__":

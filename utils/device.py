@@ -43,3 +43,23 @@ def area_interpolate(x, size):
             W[s:e, i] = 1.0 / (e - s)
         W = _POOL_CACHE[key] = W.to(device=x.device, dtype=x.dtype)
     return x @ W
+
+
+def _empty_cache():
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def retry_on_oom(fn, batch_size):
+    """fn(batch_size), halving batch_size on out-of-memory so small-memory Macs work with defaults."""
+    while True:
+        try:
+            return fn(batch_size)
+        except (RuntimeError, torch.OutOfMemoryError) as e:
+            if "out of memory" not in str(e).lower() or batch_size <= 1:
+                raise
+            _empty_cache()
+            batch_size //= 2
+            print(f"[oom] retrying with batch size {batch_size}", flush=True)

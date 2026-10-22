@@ -3,7 +3,7 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")  # unsupported mps ops
 import numpy as np
 from omegaconf import OmegaConf
 sys.path.insert(0, os.environ.get("NCM_ROOT", os.getcwd()))
-from utils.device import get_device
+from utils.device import get_device, retry_on_oom
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--config", required=True)
@@ -52,8 +52,8 @@ def rouge():
         for k in R:
             R[k].append(v[k].fmeasure)
     with torch.no_grad():
-        gp = generation_perplexity(lm, g2, [""] * len(hyps), hyps, device=DEV,
-                                   score_only_generated=True, batch_size=SCORE_BS or 32).mean_ppl
+        gp = retry_on_oom(lambda bs: generation_perplexity(lm, g2, [""] * len(hyps), hyps, device=DEV,
+                                                          score_only_generated=True, batch_size=bs).mean_ppl, SCORE_BS or 32)
     print(f"{'R-1':>7} {'R-2':>7} {'R-L':>7} {'genPPL':>8} {'words':>7}")
     print(f"{100 * np.mean(R['rouge1']):7.2f} {100 * np.mean(R['rouge2']):7.2f} {100 * np.mean(R['rougeL']):7.2f} "
           f"{gp:8.2f} {np.mean([len(h.split()) for h in hyps]):7.1f}")
@@ -100,7 +100,8 @@ def genppl():
         sel = [k for k, s_ in enumerate(seeds) if s_ == seed]
         gen = [hyps_by_part[k] for k in sel]
         with torch.no_grad():
-            ppl = generation_perplexity(rlm, rtok, [""] * len(gen), gen, device=DEV, batch_size=SCORE_BS or 32).mean_ppl
+            ppl = retry_on_oom(lambda bs: generation_perplexity(rlm, rtok, [""] * len(gen), gen, device=DEV, batch_size=bs).mean_ppl,
+                               SCORE_BS or 32)
         ent = float(np.mean([entropy(toks[k]) for k in sel if toks[k]]))
         per.append((seed, ppl, ent))
     print(f"{'seed':>5} {'genPPL':>8} {'entropy':>8}")
@@ -127,17 +128,19 @@ def genppl_flm():
     def corpus_ppl(texts):
         enc = rtok(texts, return_tensors="pt", return_token_type_ids=False, truncation=True, padding=True, max_length=128)
         ids, attn = enc["input_ids"].to(DEV), enc["attention_mask"].to(DEV)
-        nll_sum = tok_sum = 0.0
-        with torch.no_grad():
-            bs = SCORE_BS or 16
-            for i in range(0, ids.shape[0], bs):
-                s_, m_ = ids[i:i + bs], attn[i:i + bs]
-                logits = rlm(s_, attention_mask=m_)[0].transpose(-1, -2)
-                nll = F.cross_entropy(logits[..., :-1], s_[..., 1:], reduction="none")
-                first_eos = (s_ == rtok.eos_token_id).cumsum(-1) == 1
-                valid = (first_eos[..., 1:] + (s_ != rtok.eos_token_id)[..., 1:]).to(nll.dtype)
-                nll_sum += float((nll * valid).sum()); tok_sum += float(valid.sum())
-        return float(np.exp(nll_sum / tok_sum))
+
+        def run(bs):
+            nll_sum = tok_sum = 0.0
+            with torch.no_grad():
+                for i in range(0, ids.shape[0], bs):
+                    s_, m_ = ids[i:i + bs], attn[i:i + bs]
+                    logits = rlm(s_, attention_mask=m_)[0].transpose(-1, -2)
+                    nll = F.cross_entropy(logits[..., :-1], s_[..., 1:], reduction="none")
+                    first_eos = (s_ == rtok.eos_token_id).cumsum(-1) == 1
+                    valid = (first_eos[..., 1:] + (s_ != rtok.eos_token_id)[..., 1:]).to(nll.dtype)
+                    nll_sum += float((nll * valid).sum()); tok_sum += float(valid.sum())
+            return float(np.exp(nll_sum / tok_sum))
+        return retry_on_oom(run, SCORE_BS or 16)
 
     def entropy(ids):
         t = torch.tensor(ids)
