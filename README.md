@@ -133,7 +133,7 @@ M2 and M4 chips weren't tested directly. They use the same `mps` backend, and wh
 | TinyStories | 16 samples × 5 seeds | genPPL 15.40, entropy 3.98 | — |
 | LM1B small | 16 samples × 5 seeds | genPPL 90.63, entropy 4.32 | 27 s |
 | LM1B medium | 16 samples × 5 seeds | genPPL 92.19, entropy 4.34 | 61 s |
-<!-- LM1B_LARGE -->
+| LM1B large | 16 samples × 5 seeds | genPPL 84.08, entropy 4.33 | 46 s |
 
 The text tasks were run at smoke-test sample sizes, not the paper's protocol, so their numbers aren't comparable to the paper. OpenWebText can't be evaluated yet, on any hardware: no OWT generator has been released (the checkpoint repo only contains `owt/TODO.md`). `config/eval/owt.yaml` uses the same generation and `genppl` scoring path as TinyStories.
 
