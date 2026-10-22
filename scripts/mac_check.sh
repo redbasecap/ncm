@@ -4,6 +4,7 @@
 # Downloads ~165 MB of weights/data and creates .venv if it does not exist.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+mkdir -p eval
 
 if [ ! -x .venv/bin/python ]; then
   if command -v uv >/dev/null; then
@@ -33,11 +34,12 @@ run() {
   rm -rf "$out"
   local t0=$SECONDS
   env "$@" $PY evaluate.py --config config/eval/sudoku-easy.yaml --checkpoint-dir artifacts/sudoku/easy \
-    --data-dir data/sudoku/easy --n 128 --out "$out" > "$out.txt" 2>&1 || { cat "$out.txt"; tail -20 "$out"/shard_0.log; exit 1; }
+    --data-dir data/sudoku/easy --n 128 --out "$out" > "$out.txt" 2>&1 || {
+      { echo "FAILED: $*"; cat "$out.txt"; tail -20 "$out"/shard_0.log 2>/dev/null; } >&2; return 1; }
   echo $((SECONDS - t0))
 }
-T_DEF=$(run eval/mac_check_default PYTORCH_ENABLE_MPS_FALLBACK=0)
-T_CPU=$(run eval/mac_check_cpu NCM_DEVICE=cpu)
+T_DEF=$(run eval/mac_check_default PYTORCH_ENABLE_MPS_FALLBACK=0) || exit 1
+T_CPU=$(run eval/mac_check_cpu NCM_DEVICE=cpu) || exit 1
 
 RESULT=$($PY - <<'PY'
 import pickle, re
