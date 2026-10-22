@@ -119,7 +119,24 @@ Changes compared to the CUDA-only code:
 ¹ The cap was set with `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.125 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.1`. It emulates a smaller GPU memory budget, not a real 8 GB Mac.
 ² That VM's `mps` can't allocate memory, so device selection fell back to the CPU automatically.
 
-M2 and M4 chips weren't tested directly. They use the same `mps` backend, and which operations it supports depends on the PyTorch and macOS versions, not the chip generation.
+M2 and M4 chips haven't been tested yet. They use the same `mps` backend, and which operations it supports depends on the PyTorch and macOS versions, not the chip generation.
+
+### Check your Mac
+
+Run one command from the repo root. It creates `.venv` if needed, downloads about 165 MB, runs the unit tests, runs Sudoku-easy on `mps` with the CPU fallback disabled and on the CPU, and checks that both give identical outputs:
+
+```bash
+bash scripts/mac_check.sh
+```
+
+It finishes with a `RESULT | ...` line. Please send it in (issue or PR) so it can be added here:
+
+| Chip | RAM | macOS | Device | Tests | Sudoku easy (128) | mps = cpu |
+|---|---|---|---|---|---|---|
+| M3 Max | 64 GB | 26.5 | `mps` | 155 passed | 126/128 | 128/128 |
+| M1 (GitHub runner) | 7 GB | 15.7 | `mps` | 155 passed | 126/128 | 128/128 |
+| M1 (GitHub runner) | 7 GB | 14.8 | CPU (VM `mps` broken) | 78 passed, 77 skipped | 126/128 | 128/128 |
+| M2 / M4 | | | | | | |
 
 ### Results on M3 Max (`mps`, PyTorch 2.14.1)
 
