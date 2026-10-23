@@ -40,6 +40,14 @@ Validation gives the same picture (NCM angle MAE 33.9° vs 48.4°, lDDT 0.355 vs
 - Much more training (the paper's generators train for 50k–350k steps at batch 512–2,048).
 - Evolutionary input such as MSAs or protein language-model embeddings, which is what makes AlphaFold-class models work.
 
+## Watch it fold live
+
+```bash
+python -m folding.live      # then open http://127.0.0.1:8770
+```
+
+NCM folds test proteins one after another on this machine and streams each of the 13 levels to the browser as `generate()` produces it. The page shows the prediction against the true structure, per-level lDDT/TM/RMSD and the measured model time (about 6–8 ms per level on an M3 Max). You can also paste your own sequence of 10–128 residues. `python -m folding.visualize` exports the same per-level traces to JSON.
+
 ## Run it
 
 ```bash

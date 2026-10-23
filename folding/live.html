@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NCM faltet live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+/* Layout: molecular viewer on a dark bench; the 3D canvas dominates, controls in a narrow side column. */
+:root {
+  --bg: #0e1218;
+  --panel: #151b24;
+  --line: #263040;
+  --fg: #e3e8ef;
+  --muted: #8b97a8;
+  --ghost: #c9d1dc;
+  --accent: #7cc4ff;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 24px 40px; display: grid; gap: 20px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font-family: var(--font-data); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 68ch; margin: 0; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.stage { position: relative; background: radial-gradient(120% 100% at 50% 40%, #182130 0%, var(--bg) 70%); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; aspect-ratio: 1 / 1; max-width: 100%; touch-action: none; cursor: grab; }
+.stage:active { cursor: grabbing; }
+canvas { display: block; width: 100%; height: 100%; }
+.legend { position: absolute; left: 14px; bottom: 12px; display: flex; gap: 14px; align-items: center; font-family: var(--font-data); font-size: 12px; color: var(--muted); flex-wrap: wrap; pointer-events: none; }
+.legend .bar { width: 72px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #3b5bdb, #1fb5c9, #9bd34a, #f2c94c, #eb5757); }
+.legend .ghostkey { width: 22px; height: 0; border-top: 3px solid var(--ghost); opacity: .45; }
+.hint { position: absolute; right: 14px; top: 12px; font-family: var(--font-data); font-size: 11px; color: var(--muted); pointer-events: none; }
+aside { display: grid; gap: 16px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; }
+.card h2 { font-family: var(--font-display); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.prots { display: grid; gap: 6px; }
+.prot { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line); cursor: pointer; }
+.prot:hover { border-color: #3a4a62; }
+.prot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prot[aria-pressed="true"] { border-color: var(--accent); background: #1a2533; }
+.prot .nm { font-family: var(--font-data); font-weight: 500; }
+.prot .kd { font-size: 12px; color: var(--muted); }
+.prot .sc { grid-row: span 2; align-self: center; font-family: var(--font-data); font-size: 13px; font-variant-numeric: tabular-nums; }
+.levels { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); gap: 3px; }
+.lv { all: unset; box-sizing: border-box; height: 34px; border-radius: 4px; background: #1d2633; display: grid; place-items: end center; padding-bottom: 3px; cursor: pointer; font-family: var(--font-data); font-size: 9px; color: var(--muted); position: relative; overflow: hidden; }
+.lv .fill { position: absolute; left: 0; right: 0; bottom: 0; background: #2b3b52; }
+.lv span { position: relative; }
+.lv[aria-current="true"] { outline: 2px solid var(--accent); }
+.lv[aria-current="true"] .fill { background: #3c6c99; }
+.lv.done .fill { background: #2f4a68; }
+.lv:focus-visible { outline: 2px solid var(--accent); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+button.act { all: unset; box-sizing: border-box; font-family: var(--font-body); font-weight: 500; font-size: 14px; padding: 7px 14px; border-radius: 7px; background: var(--accent); color: #08131f; cursor: pointer; }
+button.act:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+button.ghostbtn { all: unset; box-sizing: border-box; font-size: 14px; padding: 7px 12px; border-radius: 7px; border: 1px solid var(--line); cursor: pointer; color: var(--fg); }
+button.ghostbtn[aria-pressed="true"] { border-color: var(--accent); }
+button.ghostbtn:focus-visible { outline: 2px solid var(--accent); }
+.stepinfo { font-family: var(--font-data); font-size: 12px; color: var(--muted); }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.metric { display: grid; gap: 2px; }
+.metric .k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.metric .v { font-family: var(--font-data); font-size: 20px; font-variant-numeric: tabular-nums; }
+.spark { width: 100%; height: 54px; display: block; }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.seq { font-family: var(--font-data); font-size: 12px; line-height: 1.7; word-break: break-all; overflow-wrap: anywhere; }
+.explain { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .explain { grid-template-columns: minmax(0, 1fr); } }
+.explain p { margin: 0; color: var(--muted); font-size: 14px; max-width: 60ch; }
+.explain strong { color: var(--fg); font-weight: 500; display: block; margin-bottom: 4px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.status { display: flex; align-items: center; gap: 10px; font-family: var(--font-data); font-size: 13px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.on { background: #6fdc8c; box-shadow: 0 0 0 0 rgba(111, 220, 140, .6); animation: pulse 1.2s infinite; }
+@keyframes pulse { 70% { box-shadow: 0 0 0 8px rgba(111, 220, 140, 0); } 100% { box-shadow: 0 0 0 0 rgba(111, 220, 140, 0); } }
+.lv:disabled { opacity: .35; cursor: default; }
+textarea { width: 100%; min-height: 64px; resize: vertical; box-sizing: border-box; background: #0f141b; color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 8px; font-family: var(--font-data); font-size: 12px; }
+textarea:focus-visible { outline: 2px solid var(--accent); }
+.err { color: #ff9b8f; font-size: 13px; margin: 0; }
+.logwrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-size: 12px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 400; }
+tfoot td { color: var(--fg); border-bottom: 0; }
+@media (prefers-reduced-motion: reduce) { .dot.on { animation: none; } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Next-Concept Modeling · Proteinfaltung · läuft auf diesem Mac</div>
+    <h1>NCM faltet live</h1>
+    <p class="lede">Das Modell faltet gerade auf deiner GPU. Jede der 13 Ebenen erscheint in dem Moment, in dem NCM sie erzeugt hat: erst 1 Code für die ganze Kette, dann 2, 4 … bis 128. Farbig ist die Vorhersage, der blasse Schatten die echte Kristallstruktur. Die Testproteine haben Faltungstypen, die das Modell im Training nie gesehen hat.</p>
+  </header>
+
+  <div class="main">
+    <div class="stage" id="stage">
+      <canvas id="cv" aria-label="3D-Ansicht des Protein-Rückgrats"></canvas>
+      <div class="hint">ziehen zum Drehen</div>
+      <div class="legend"><span class="bar"></span><span>N → C</span><span class="ghostkey"></span><span>echte Struktur</span></div>
+    </div>
+
+    <aside>
+      <div class="card">
+        <div class="status"><span class="dot" id="dot"></span><span id="status">verbinde …</span></div>
+        <div class="row">
+          <button class="act" id="auto" aria-pressed="true">Auto-Modus pausieren</button>
+          <button class="ghostbtn" id="ghost" aria-pressed="true">Echte Struktur</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 id="pname">Protein</h2>
+        <div class="levels" id="levels" role="group" aria-label="Generierungsebene"></div>
+        <div class="stepinfo" id="stepinfo"></div>
+        <div class="metrics">
+          <div class="metric"><span class="k">lDDT</span><span class="v" id="m-lddt">–</span></div>
+          <div class="metric"><span class="k">TM</span><span class="v" id="m-tm">–</span></div>
+          <div class="metric"><span class="k">RMSD</span><span class="v" id="m-rmsd">–</span></div>
+        </div>
+        <svg class="spark" id="spark" viewBox="0 0 280 54" preserveAspectRatio="none" aria-label="lDDT über die Ebenen"></svg>
+        <p class="note">lDDT misst lokale Abstände (1 = perfekt), TM die Gesamtfaltung (unter 0,17 = wie zufällig), RMSD die mittlere Abweichung nach Überlagerung.</p>
+      </div>
+
+      <div class="card">
+        <h2>Eigene Sequenz falten</h2>
+        <label class="note" for="own">10 bis 128 Aminosäuren im Ein-Buchstaben-Code. Ohne echte Struktur gibt es keine Vergleichswerte.</label>
+        <textarea id="own" spellcheck="false">MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEKAVQVKVKALPDAQFEVVHSLAKWKRQTLGQHDFSAGEGLYTHMKALRPDEDRLSPLHSVYVDQWDWERVMG</textarea>
+        <div class="row"><button class="ghostbtn" id="foldown" type="button">Diese Sequenz falten</button></div>
+        <p class="err" id="err" hidden></p>
+      </div>
+    </aside>
+  </div>
+
+  <div class="card">
+    <h2>Sequenz</h2>
+    <div class="seq" id="seq"></div>
+  </div>
+
+  <div class="card">
+    <h2>In dieser Sitzung gefaltet</h2>
+    <div class="logwrap">
+      <table>
+        <thead><tr><th>Protein</th><th>Länge</th><th>lDDT</th><th>TM</th><th>RMSD</th><th>Rechenzeit</th></tr></thead>
+        <tbody id="log"></tbody>
+        <tfoot><tr><td>Mittel (Testproteine)</td><td id="f-n"></td><td id="f-lddt"></td><td id="f-tm"></td><td id="f-rmsd"></td><td id="f-ms"></td></tr></tfoot>
+      </table>
+    </div>
+    <p class="note">Zum Vergleich über alle 690 Testabschnitte: lDDT 0,35 (häufigster Winkel pro Aminosäure: 0,27), TM 0,06. Die Anzeige verweilt pro Ebene kurz, damit man zusehen kann; die echte Rechenzeit steht in der Tabelle.</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), stage = document.getElementById('stage');
+  const $ = id => document.getElementById(id);
+  const fmt = (v, d) => v == null ? '–' : v.toFixed(d).replace('.', ',');
+  let P = null, level = -1, showGhost = true, yaw = 0.6, pitch = -0.35, auto = true, es = null, nextTimer = null;
+  let cur = null, from = null, to = null, t0 = 0, dragging = false;
+  const DUR = reduce ? 0 : 380;
+  const LOG = [];
+
+  const STOPS = [[59, 91, 219], [31, 181, 201], [155, 211, 74], [242, 201, 76], [235, 87, 87]];
+  const spec = u => { const x = Math.min(0.9999, Math.max(0, u)) * (STOPS.length - 1), i = Math.floor(x), f = x - i; return STOPS[i].map((c, k) => Math.round(c + (STOPS[i + 1][k] - c) * f)); };
+
+  function resize() { const r = stage.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
+  function project(p, scale, cx, cy) {
+    const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const x = p[0] * cyw + p[2] * syw, z = -p[0] * syw + p[2] * cyw, y = p[1];
+    const y2 = y * cp - z * sp, z2 = y * sp + z * cp, persp = 1 / (1 + z2 / 220);
+    return [cx + x * scale * persp, cy - y2 * scale * persp, z2, persp];
+  }
+  function draw() {
+    const W = cv.width, H = cv.height, dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, W, H);
+    if (!P || !cur) return;
+    let R = 1;
+    if (P.true) for (const p of P.true) R = Math.max(R, Math.hypot(p[0], p[1], p[2]));
+    for (const p of cur) R = Math.max(R, Math.hypot(p[0], p[1], p[2]) * (P.true ? 0.8 : 1));
+    const scale = Math.min(W, H) * 0.42 / R, cx = W / 2, cy = H / 2, segs = [];
+    const add = (pts, ghost) => { const pr = pts.map(p => project(p, scale, cx, cy)); for (let i = 0; i < pr.length - 1; i++) segs.push({ a: pr[i], b: pr[i + 1], z: (pr[i][2] + pr[i + 1][2]) / 2, i, n: pr.length, ghost }); };
+    if (showGhost && P.true) add(P.true, true);
+    add(cur, false);
+    segs.sort((s, t) => t.z - s.z);
+    ctx.lineCap = 'round';
+    for (const s of segs) {
+      const depth = Math.max(0.35, Math.min(1.25, (s.a[3] + s.b[3]) / 2));
+      if (s.ghost) { ctx.strokeStyle = `rgba(201, 209, 220, ${0.16 + 0.12 * depth})`; ctx.lineWidth = 5 * dpr * depth; }
+      else { const [r, g, b] = spec(s.i / (s.n - 1)), sh = 0.55 + 0.45 * Math.min(1, depth); ctx.strokeStyle = `rgb(${Math.round(r * sh)}, ${Math.round(g * sh)}, ${Math.round(b * sh)})`; ctx.lineWidth = 7 * dpr * depth; }
+      ctx.beginPath(); ctx.moveTo(s.a[0], s.a[1]); ctx.lineTo(s.b[0], s.b[1]); ctx.stroke();
+    }
+  }
+  function frame(now) {
+    if (to && from) {
+      const u = DUR ? Math.min(1, (now - t0) / DUR) : 1, e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+      cur = to.map((p, i) => p.map((c, k) => from[i][k] + (c - from[i][k]) * e));
+      if (u >= 1) from = null;
+    }
+    if (!dragging && !reduce) yaw += 0.0025;
+    draw(); requestAnimationFrame(frame);
+  }
+
+  function buildLevels(levels) {
+    const lv = $('levels'); lv.innerHTML = '';
+    levels.forEach((n, i) => {
+      const b = document.createElement('button');
+      b.className = 'lv'; b.type = 'button'; b.disabled = true; b.title = `Ebene ${i + 1}: ${n} Codes`;
+      b.setAttribute('aria-label', `Ebene ${i + 1}, ${n} Codes`);
+      b.innerHTML = `<div class="fill" style="height: ${Math.round(18 + 82 * Math.log2(n) / 7)}%"></div><span>${n}</span>`;
+      b.addEventListener('click', () => show(i, true));
+      lv.appendChild(b);
+    });
+  }
+  function show(k, animate) {
+    level = k;
+    const F = P.frames[k];
+    from = animate && cur && cur.length === F.ca.length ? cur.map(p => p.slice()) : null;
+    to = F.ca; t0 = performance.now();
+    if (!from) cur = F.ca.map(p => p.slice());
+    document.querySelectorAll('.lv').forEach((b, i) => { b.setAttribute('aria-current', i === k ? 'true' : 'false'); b.classList.toggle('done', i < k); });
+    const codes = P.levels.slice(0, k + 1).reduce((a, b) => a + b, 0);
+    $('stepinfo').textContent = `Ebene ${k + 1} von 13 · ${P.levels[k]} ${P.levels[k] === 1 ? 'Code' : 'Codes'} · ${codes} Codes bisher · ${fmt(F.ms, 1)} ms`;
+    $('m-lddt').textContent = fmt(F.lddt, 2); $('m-tm').textContent = fmt(F.tm, 2);
+    $('m-rmsd').textContent = F.rmsd == null ? '–' : fmt(F.rmsd, 1) + ' Å';
+    spark();
+  }
+  function spark() {
+    const svg = $('spark'), w = 280, h = 54, pad = 5;
+    const fr = P.frames.filter(f => f.lddt != null);
+    if (!fr.length) { svg.innerHTML = ''; return; }
+    const xs = i => pad + i * (w - 2 * pad) / 12, ys = v => h - pad - v * (h - 2 * pad);
+    const pts = fr.map((f, i) => `${xs(i).toFixed(1)},${ys(f.lddt).toFixed(1)}`);
+    svg.innerHTML = `<line x1="${pad}" x2="${w - pad}" y1="${ys(0.5)}" y2="${ys(0.5)}" stroke="#263040" stroke-dasharray="3 3"/>` +
+      `<polygon points="${xs(0)},${h - pad} ${pts.join(' ')} ${xs(fr.length - 1)},${h - pad}" fill="rgba(124, 196, 255, 0.12)"/>` +
+      `<polyline points="${pts.join(' ')}" fill="none" stroke="#7cc4ff" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` +
+      (level >= 0 && P.frames[level].lddt != null ? `<circle cx="${xs(level)}" cy="${ys(P.frames[level].lddt)}" r="3.5" fill="#e3e8ef"/>` : '');
+  }
+  function setStatus(text, on) { $('status').textContent = text; $('dot').classList.toggle('on', !!on); }
+
+  function addLog(done) {
+    const last = P.frames[P.frames.length - 1];
+    LOG.push({ name: P.name, L: P.seq.length, lddt: last.lddt, tm: last.tm, rmsd: last.rmsd, ms: done.ms, test: !!P.true });
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${P.name}</td><td>${P.seq.length}</td><td>${fmt(last.lddt, 2)}</td><td>${fmt(last.tm, 2)}</td><td>${last.rmsd == null ? '–' : fmt(last.rmsd, 1) + ' Å'}</td><td>${fmt(done.ms, 0)} ms</td>`;
+    $('log').prepend(tr);
+    const t = LOG.filter(r => r.test), m = k => t.reduce((a, r) => a + r[k], 0) / t.length;
+    if (t.length) { $('f-n').textContent = `${t.length}×`; $('f-lddt').textContent = fmt(m('lddt'), 2); $('f-tm').textContent = fmt(m('tm'), 2); $('f-rmsd').textContent = fmt(m('rmsd'), 1) + ' Å'; $('f-ms').textContent = fmt(m('ms'), 0) + ' ms'; }
+  }
+
+  function fold(seq) {
+    clearTimeout(nextTimer);
+    if (es) es.close();
+    $('err').hidden = true;
+    es = new EventSource('/fold' + (seq ? '?seq=' + encodeURIComponent(seq) : ''));
+    es.addEventListener('start', e => {
+      const d = JSON.parse(e.data);
+      P = { ...d, frames: [] }; cur = null; level = -1;
+      $('pname').textContent = d.kind === 'own' ? 'Eigene Sequenz' : `Testprotein ${d.name}`;
+      $('seq').innerHTML = [...d.seq].map((a, k) => { const [r, g, b] = spec(k / (d.seq.length - 1)); return `<span style="color: rgb(${r}, ${g}, ${b})">${a}</span>`; }).join('');
+      $('ghost').disabled = !d.true;
+      buildLevels(d.levels);
+      ['m-lddt', 'm-tm', 'm-rmsd'].forEach(id => $(id).textContent = '–'); $('spark').innerHTML = '';
+      setStatus(`faltet ${d.kind === 'own' ? 'eigene Sequenz' : d.name} · ${d.seq.length} Aminosäuren · ${d.device}`, true);
+    });
+    es.addEventListener('level', e => {
+      const f = JSON.parse(e.data);
+      P.frames.push(f);
+      document.querySelectorAll('.lv')[f.k].disabled = false;
+      show(f.k, true);
+    });
+    es.addEventListener('done', e => {
+      const d = JSON.parse(e.data);
+      es.close(); es = null;
+      addLog(d);
+      setStatus(`fertig: ${P.name} in ${fmt(d.ms, 0)} ms Rechenzeit` + (auto ? ' · nächstes Protein gleich' : ''), false);
+      if (auto) nextTimer = setTimeout(() => fold(), 2600);
+    });
+    es.onerror = () => {
+      if (!es) return;
+      es.close(); es = null;
+      setStatus('keine Verbindung zum Server · läuft python -m folding.live?', false);
+      if (auto) nextTimer = setTimeout(() => fold(), 5000);
+    };
+  }
+
+  $('auto').addEventListener('click', e => {
+    auto = !auto; e.currentTarget.setAttribute('aria-pressed', String(auto));
+    e.currentTarget.textContent = auto ? 'Auto-Modus pausieren' : 'Auto-Modus fortsetzen';
+    if (auto && !es) fold(); else if (!auto) clearTimeout(nextTimer);
+  });
+  $('ghost').addEventListener('click', e => { showGhost = !showGhost; e.currentTarget.setAttribute('aria-pressed', String(showGhost)); });
+  $('foldown').addEventListener('click', () => {
+    const s = $('own').value.toUpperCase().replace(/[^A-Z]/g, '');
+    if (s.length < 10 || s.length > 128) { $('err').textContent = `Die Sequenz braucht 10 bis 128 Aminosäuren, sie hat ${s.length}.`; $('err').hidden = false; return; }
+    auto = false; $('auto').setAttribute('aria-pressed', 'false'); $('auto').textContent = 'Auto-Modus fortsetzen';
+    fold(s);
+  });
+  stage.addEventListener('pointerdown', e => { dragging = true; lx = e.clientX; ly = e.clientY; stage.setPointerCapture(e.pointerId); });
+  let lx = 0, ly = 0;
+  stage.addEventListener('pointermove', e => { if (!dragging) return; yaw += (e.clientX - lx) * 0.01; pitch = Math.max(-1.4, Math.min(1.4, pitch + (e.clientY - ly) * 0.01)); lx = e.clientX; ly = e.clientY; });
+  const end = () => { dragging = false; };
+  stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+  window.addEventListener('resize', resize);
+  resize(); requestAnimationFrame(frame); fold();
+})();
+</script>
+</body>
+</html>
