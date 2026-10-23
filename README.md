@@ -138,7 +138,25 @@ It finishes with a `RESULT | ...` line. Please send it in (issue or PR) so it ca
 | M1 (GitHub runner) | 7 GB | 14.8 | CPU (VM `mps` broken) | 78 passed, 77 skipped | 126/128 | 128/128 |
 | M2 / M4 | | | | | | |
 
-### Results on M3 Max (`mps`, PyTorch 2.14.1)
+### Full evaluation protocol on M3 Max (`mps`) vs. the paper
+
+Every released model was run at the full protocol of `config/eval/*.yaml`, with no `--n` limit:
+
+| Task | Protocol | Paper (Table 2/3, Fig. 7) | M3 Max, `mps` | Time |
+|---|---|---|---|---|
+| Sudoku easy / medium / hard | 2000 boards each | 99.5 / 96.5 / 86.1% | 99.40 / 96.40 / 86.30% | ~40 s each |
+| WMT14 De→En | 3003 sentences | BLEU 22.6 | BLEU 22.61 lowercased (21.72 cased), chrF 49.56 | 3.3 min |
+| XSum | 11334 documents | R-1/2/L 35.0 / 12.8 / 28.0 | 34.92 / 12.71 / 27.93, genPPL 82.62 | ~45 min¹ |
+| LM1B small (97M) | 5 seeds × 256 | genPPL 93.1, H 4.31 | genPPL 92.59 ± 1.40, H 4.31 | 4.3 min |
+| LM1B medium | 5 seeds × 256 | — | genPPL 88.94 ± 1.64, H 4.34 | 7.5 min |
+| LM1B large | 5 seeds × 256 | — | genPPL 81.46 ± 1.99, H 4.34 | 12 min |
+| TinyStories | 5 seeds × 256 | H 3.98 | genPPL 15.98 ± 0.28, H 3.97 | 2.6 min |
+
+¹ Approximate: the run took 5.7 h of wall-clock time, including a 5 h pause while the GPU was used for another job, and it partly shared the GPU before that.
+
+The paper reports TinyStories genPPL only in a plot, so only entropy is compared there.
+
+### Smoke-test results on M3 Max (`mps`, PyTorch 2.14.1)
 
 | Task | Inputs | Result | Time |
 |---|---|---|---|
@@ -152,7 +170,7 @@ It finishes with a `RESULT | ...` line. Please send it in (issue or PR) so it ca
 | LM1B medium | 16 samples × 5 seeds | genPPL 92.19, entropy 4.34 | 61 s |
 | LM1B large | 16 samples × 5 seeds | genPPL 84.08, entropy 4.33 | 46 s |
 
-The text tasks were run at smoke-test sample sizes, not the paper's protocol, so their numbers aren't comparable to the paper. OpenWebText can't be evaluated yet, on any hardware: no OWT generator has been released (the checkpoint repo only contains `owt/TODO.md`). `config/eval/owt.yaml` uses the same generation and `genppl` scoring path as TinyStories.
+These smoke tests use small sample sizes; see the full-protocol table above for numbers comparable to the paper. OpenWebText can't be evaluated yet, on any hardware: no OWT generator has been released (the checkpoint repo only contains `owt/TODO.md`). `config/eval/owt.yaml` uses the same generation and `genppl` scoring path as TinyStories.
 
 ## Repository layout
 
