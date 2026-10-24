@@ -70,5 +70,32 @@ def test_retry_on_oom_halves_batch_size():
         retry_on_oom(lambda bs: (_ for _ in ()).throw(RuntimeError("unrelated")), 8)
 
 
+@pytest.mark.skipif(not MPS, reason="needs a working Apple Silicon mps device")
+def test_conv_backward_with_length_one_output_trains_on_mps():
+    """The level-0 down-sampler's backward used to abort the process on mps (training only).
+
+    Runs in a subprocess because the failure is a hard abort, not a Python exception.
+    """
+    import subprocess
+    code = """
+import sys, torch
+sys.path.insert(0, %r)
+from models import quant as Q
+from utils.device import contiguous_grad
+grads = []
+for dev in ("cpu", "mps"):
+    torch.manual_seed(0)
+    conv = Q._make_learned_down_l1(256, stride=2).to(dev)
+    x = torch.randn(8, 256, 2).to(dev).requires_grad_()
+    out = contiguous_grad(conv(x)).transpose(-1, -2)
+    (out * torch.randn(8, 1, 256).to(dev)).sum().backward()
+    grads.append((x.grad.cpu(), conv.weight.grad.cpu()))
+assert torch.allclose(grads[0][0], grads[1][0], atol=1e-5)
+assert torch.allclose(grads[0][1], grads[1][1], atol=1e-4)
+""" % ROOT
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-2000:]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.distributed as dist
 from torch.nn import functional as F
 from utils.registry import level_schedulers
-from utils.device import area_interpolate
+from utils.device import area_interpolate, contiguous_grad
 
 
 # Phi (quant_resi): per-level residual conv after upsample, blending (1-r)*h + r*Conv1d(h).
@@ -396,7 +396,7 @@ class MultiscaleResidualVectorQuantizer(VectorQuantizerBaseClass):
     def _down_for_quant(self, z_BLC, level_idx, target_len):
         z_BCL = z_BLC.transpose(-1, -2)
         if level_idx == 0 and self.learned_l1_sampling:
-            return self.learned_down_l1(z_BCL).transpose(-1, -2).contiguous()
+            return contiguous_grad(self.learned_down_l1(z_BCL)).transpose(-1, -2).contiguous()
         zd_BCL = area_interpolate(z_BCL, target_len)
         if self.learned_all_sampling and 1 <= level_idx <= len(self.levels) - 2:
             zd_BCL = zd_BCL + self.learned_down_refine[level_idx](zd_BCL)
